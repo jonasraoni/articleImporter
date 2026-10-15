@@ -16,6 +16,7 @@ use APP\facades\Repo;
 use APP\plugins\importexport\articleImporter\exceptions\ArticleSkippedException;
 use APP\publication\enums\VersionStage;
 use Generator;
+use Illuminate\Support\Facades\DB;
 use PKP\publication\helpers\PublicationVersionInfo;
 use SplFileInfo;
 
@@ -190,6 +191,8 @@ class ArticleEntry
 
             $reviewImporter = new ReviewImporter($configuration, $oreConnection, $version);
             $reviewImporter->createReviewsForVersions(Repo::submission()->get($parser->getSubmission()->getId()), $parser);
+
+            DB::update("UPDATE submissions SET stage_id = 6, status = 3 WHERE submissions.id = {$parser->getSubmission()->getId()} AND NOT ((stage_id = 6 AND status = 3) OR (stage_id < 4))");
 
             $processed = true;
         }
