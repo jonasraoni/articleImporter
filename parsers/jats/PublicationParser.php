@@ -248,7 +248,7 @@ trait PublicationParser
             ->where('v.article_id', $articleId)
             ->where('v.version_number', $version)
             ->orderBy('c.creation_date')
-            ->select(['c.text', 'c.creation_date', 'c.last_updated', 'u.usr_email', 'c.competing_interests'])
+            ->select(['c.text', 'c.creation_date', 'c.last_updated', 'u.usr_email', 'c.competing_interests', 'c.date_approved'])
             ->get();
 
         $contextId = $this->getContextId();
@@ -275,7 +275,8 @@ trait PublicationParser
                 'isApproved' => true,
                 'createdAt' => $comment->creation_date,
                 'updatedAt' => $comment->last_updated ?? $comment->creation_date,
-                'approvedAt' => $comment->last_updated ?? $comment->creation_date,
+                'approvedAt' => new DateTimeImmutable($comment->date_approved ?? $comment->creation_date)->format('Y-m-d H:i:s'),
+                'approvedByUserId' => $this->getConfiguration()->getUser()->getId(),
             ]);
         }
     }
