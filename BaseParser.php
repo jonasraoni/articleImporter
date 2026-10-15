@@ -211,7 +211,22 @@ abstract class BaseParser
      */
     public function selectText(string $path, ?DOMNode $context = null, DOMXPath $xpath = null): string
     {
-        return strip_tags(trim($this->evaluate("string({$path})", $context, $xpath)));
+        $s = strip_tags(trim($this->evaluate("string({$path})", $context, $xpath)));
+        if (mb_check_encoding($s, 'utf-8')) {
+            return $s;
+        }
+
+        echo "Detected invalid UTF-8 string: {$s}\n";
+
+        foreach (preg_split('//u', $s, -1, PREG_SPLIT_NO_EMPTY) as $i => $c) {
+            if (!mb_check_encoding($c, 'utf-8')) {
+                $s[$i] = iconv('latin1', 'utf-8', $c);
+            }
+        }
+
+        $s = mb_check_encoding($s, 'utf-8') ? $s : iconv('utf-8', 'utf-8//ignore', $s);
+        echo "Fixed UTF-8 string: {$s}\n";
+        return $s;
     }
 
     /**
