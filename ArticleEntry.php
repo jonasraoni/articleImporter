@@ -131,6 +131,7 @@ class ArticleEntry
         $versionMajor = 0;
         $previouslyPassedReview = false;
         $processed = false;
+        $articleId = null;
         foreach ($this->getVersions() as $version) {
             $parser = $version->process($configuration);
             $publication = $parser->getPublication();
@@ -192,9 +193,25 @@ class ArticleEntry
             $reviewImporter = new ReviewImporter($configuration, $oreConnection, $version);
             $reviewImporter->createReviewsForVersions(Repo::submission()->get($parser->getSubmission()->getId()), $parser);
 
-            DB::update("UPDATE submissions SET stage_id = 6, status = 3 WHERE submissions.id = {$parser->getSubmission()->getId()} AND NOT ((stage_id = 6 AND status = 3) OR (stage_id < 4))");
-
             $processed = true;
+        }
+
+        if (!$articleId) {
+            error_log("Article ID not found to setup the final submission status\n");
+            return;
+        }
+        $latestVersion = $oreConnection
+            ->table('f1000r_version as v')
+            ->where('v.id', fn ($query) => $query->selectRaw('MAX(id)')->from('f1000r_version')->where('article_id', $articleId))
+            ->select('v.em_status', 'v.status')
+            ->first();
+
+        if ($latestVersion->em_status == 'COMPLETED' || $latestVersion->em_status == 'RETRACTED') {
+            DB::update("UPDATE submissions SET stage_id = 6, status = 3 WHERE submission_id = {$parser->getSubmission()->getId()}");
+        } elseif ($latestVersion->status == 'PUBLISHED' || $latestVersion->status == 'UNDERGOING_PEER_REVIEW') {
+            DB::update("UPDATE submissions SET stage_id = 3, status = 1 WHERE submission_id = {$parser->getSubmission()->getId()}");
+        } else {
+            DB::update("UPDATE submissions SET stage_id = 5, status = 1 WHERE submission_id = {$parser->getSubmission()->getId()}");
         }
 
         if (!$processed) {
