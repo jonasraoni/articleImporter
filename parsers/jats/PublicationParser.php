@@ -275,7 +275,7 @@ trait PublicationParser
                 'isApproved' => true,
                 'createdAt' => $comment->creation_date,
                 'updatedAt' => $comment->last_updated ?? $comment->creation_date,
-                'approvedAt' => new DateTimeImmutable($comment->date_approved ?? $comment->creation_date)->format('Y-m-d H:i:s'),
+                'approvedAt' => (new DateTimeImmutable($comment->date_approved ?? $comment->creation_date))->format('Y-m-d H:i:s'),
                 'approvedByUserId' => $this->getConfiguration()->getUser()->getId(),
             ]);
         }
@@ -344,6 +344,11 @@ trait PublicationParser
             $response = $response[0] ?? null;
             $htmlUrl = $response['htmlUrl'] ?? null;
             if ($htmlUrl) {
+                echo "{$htmlUrl}\n  out={$htmlPath}\n";
+                return;
+            }
+
+            /*if ($htmlUrl) {
                 $response = $client->request('GET', $htmlUrl);
                 $html = "<html>
     <head>
@@ -356,11 +361,7 @@ trait PublicationParser
 </html>";
 
                 file_put_contents($htmlPath, $html);
-            }
-        }
-
-        if (!file_exists($htmlPath)) {
-            return;
+            }*/
         }
 
         $localFiles = array_map('basename', glob(dirname($htmlPath) . '/*') ?: []);
@@ -369,6 +370,19 @@ trait PublicationParser
             $pattern = '/\bhttps?:\/\/[^\s]*?' . preg_quote($filename, '/') . '\b/i';
             $htmlContent = preg_replace($pattern, $filename, $htmlContent);
         }
+
+        if (strpos($htmlContent, '<html') !== 0){
+            $htmlContent = "<html>
+            <head>
+                <link rel=\"stylesheet\" type=\"text/css\" href=\"/styles/fulltext.css\"/>
+                <script defer=\"defer\" src=\"/js/fulltext.js\"></script>
+            </head>
+            <body>
+                {$htmlContent}
+            </body>
+            </html>";
+        }
+
         file_put_contents($htmlPath, $htmlContent);
     }
 
