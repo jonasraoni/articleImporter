@@ -587,10 +587,17 @@ trait PublicationParser
 
         $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
         $isImage = in_array($extension, $this->getConfiguration()->getImageExtensions());
-        if ($isImage && $extension === 'gif' && file_exists($tifFilePath = preg_replace('/gif$/', 'tif', $filePath))) {
+        if (
+            $isImage && $extension === 'gif'
+            && (
+                file_exists($highResolution = preg_replace('/gif$/', 'tif', $filePath))
+                || file_exists($highResolution = preg_replace('/gif$/', 'tiff', $filePath))
+                || file_exists($highResolution = preg_replace('/gif$/', 'eps', $filePath))
+            )
+        ) {
             $variantGroup = VariantGroup::create([]);
             $variantGroupId = $variantGroup->getKey();
-            $this->_createDependentFile($submission, $userId, $publication, $tifFilePath, $variantGroupId);
+            $this->_createDependentFile($submission, $userId, $publication, $highResolution, $variantGroupId);
         }
 
         $this->_dependentFiles[$filePath] = true;
