@@ -18,6 +18,7 @@ use APP\facades\Repo;
 use DateTimeImmutable;
 use DOMElement;
 use Exception;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PKP\core\Core;
@@ -66,7 +67,7 @@ class ReviewImporter
      * Ensures stage assignments exist for author and editor in the external review stage.
      * Required for author responses and edit decisions to work correctly.
      */
-    private function assignStageAssignments(Submission $submission): void
+    private function assignStageAssignments(Submission $submission, int $articleId): void
     {
         $submissionId = $submission->getId();
         $config = $this->configuration;
@@ -79,41 +80,41 @@ class ReviewImporter
             throw new Exception('Author group not found');
         }
 
-        // Assign primary author only
-        $publication = $submission->getCurrentPublication();
-        $authors = $publication->getData('authors');
-        $primaryAuthor = $authors ? $authors->first(fn ($a) => $publication->getData('primaryContactId') === $a->getId()) : null;
-        $primaryAuthor ??= $authors?->first();
+        $databaseEmails = $this->connection->table('f1000r_author', 'a')
+            ->join('f1000r_author_version as av', 'a.id', '=', 'av.author_id')
+            ->join('usr as u', 'u.usr_id', '=', 'av.user_id')
+            ->whereIn('av.version_id', function (Builder $query) use ($articleId) {
+                $query->selectRaw('MAX(v.id)')
+                    ->from('f1000r_version as v')
+                    ->where('v.article_id', $articleId)
+                    ->where('v.status', 'PUBLISHED');
+            })
+            ->orderBy('av.author_position')
+            ->selectRaw('COALESCE(u.usr_email, a.email) AS email')
+            ->pluck('email')
+            ->all();
 
-        if ($primaryAuthor) {
-            $email = $primaryAuthor->getData('email');
-            if ($email) {
-                $user = $this->getOrCreateUser(
-                    $primaryAuthor->getGivenName($this->locale),
-                    $primaryAuthor->getFamilyName($this->locale),
-                    $email,
-                    $authorGroupId
-                );
-                Repo::stageAssignment()->build($submissionId, $authorGroupId, $user->getId());
+        $hasAuthorAssignment = false;
+        foreach ($databaseEmails as $email) {
+            $user = Repo::user()->getByEmail($email, true);
+            if ($user) {
+                Repo::stageAssignment()->build($submissionId, $authorGroupId, $user->getId(), null, true);
+                $hasAuthorAssignment = true;
             }
         }
 
         // Fallback: if no primary author with user, use config email (enables author responses)
-        $hasAuthorAssignment = StageAssignment::withSubmissionIds([$submissionId])
-            ->withRoleIds([Role::ROLE_ID_AUTHOR])
-            ->withStageIds([WORKFLOW_STAGE_ID_EXTERNAL_REVIEW])
-            ->exists();
         if (!$hasAuthorAssignment) {
             $fallbackUser = Repo::user()->getByEmail($config->getEmail(), true);
             if ($fallbackUser) {
-                Repo::stageAssignment()->build($submissionId, $authorGroupId, $fallbackUser->getId());
+                Repo::stageAssignment()->build($submissionId, $authorGroupId, $fallbackUser->getId(), null, true);
             }
         }
 
         // Assign editor to external review (for participant list, edit decisions)
         $editorGroupIdForReview = $config->getEditorGroupIdForStage(WORKFLOW_STAGE_ID_EXTERNAL_REVIEW);
         if ($editorGroupIdForReview) {
-            Repo::stageAssignment()->build($submissionId, $editorGroupIdForReview, $config->getEditor()->getId());
+            Repo::stageAssignment()->build($submissionId, $editorGroupIdForReview, $config->getEditor()->getId(), null, true);
         }
     }
 
@@ -137,7 +138,7 @@ class ReviewImporter
         }
 
         $doiParts = explode('.', $bestDoi);
-        $articleId = array_slice($doiParts, -2, 1)[0];
+        $articleId = (int) array_slice($doiParts, -2, 1)[0];
 
         // Execute the query to get all reviews
         $reviews = $this->connection->select(
@@ -145,7 +146,7 @@ class ReviewImporter
                 coreferees.content AS coreferees,
                 re.first_name,
                 re.last_name,
-                re.email,
+                COALESCE(u.usr_email, re.email) AS email,
                 r.comment,
                 r.published_date,
                 r.decision,
@@ -160,6 +161,7 @@ class ReviewImporter
             JOIN f1000r_report AS r ON r.version_id = v.id
             JOIN f1000r_referee_report AS rr ON rr.report_id = r.id AND rr.is_coreferee = false
             JOIN f1000r_referee AS re ON re.id = rr.referee_id
+            LEFT JOIN usr AS u ON u.usr_id = re.user_id
             LEFT JOIN f1000r_article_referee AS ar ON ar.article_id = v.article_id AND ar.referee_id = rr.referee_id
             LEFT JOIN LATERAL (
                 SELECT json_agg(coreferee) AS content FROM (
@@ -187,7 +189,7 @@ class ReviewImporter
         }
 
         // Ensure stage assignments for author, editor (and reviewer via ReviewAssignment) in external review
-        $this->assignStageAssignments($submission);
+        $this->assignStageAssignments($submission, $articleId);
 
         // Group reviews by version_number (which determines the review round)
         $reviewsByVersionNumber = [];
@@ -260,11 +262,13 @@ class ReviewImporter
                         $reviewerData->first_name,
                         $reviewerData->last_name,
                         $reviewerData->email,
-                        $reviewerGroupId
+                        $reviewerGroupId,
+                        $created
                     );
 
-                    $this->updateUser($reviewerUser, $reviewersFromNode[$this->buildNameKey($reviewerData->first_name, $reviewerData->last_name)] ?? null);
-
+                    if ($created) {
+                        $this->updateUser($reviewerUser, $reviewersFromNode[$this->buildNameKey($reviewerData->first_name, $reviewerData->last_name)] ?? null);
+                    }
                     $reviewerRecommendationId = $this->getReviewerRecommendationIdForDecision($reviewRecord->decision ?? null);
 
                     $doi = $reviewRecord->doi ? Repo::doi()->getCollector()->filterByIdentifier($reviewRecord->doi)->getMany()->first() : null;
@@ -624,7 +628,7 @@ class ReviewImporter
     /**
      * Gets or creates an author user for stage assignments
      */
-    private function getOrCreateUser(?string $firstName, ?string $lastName, ?string $email, int $userGroupId): ?User
+    private function getOrCreateUser(?string $firstName, ?string $lastName, ?string $email, int $userGroupId, ?bool &$created = false): ?User
     {
         if (!$email) {
             return null;
@@ -651,7 +655,7 @@ class ReviewImporter
         if (!$userId) {
             return null;
         }
-
+        $created = true;
         Repo::userGroup()->assignUserToGroup($userId, $userGroupId);
         return Repo::user()->get($userId);
     }
