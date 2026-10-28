@@ -16,6 +16,7 @@ use APP\publication\Publication;
 use APP\author\Author;
 use APP\facades\Repo;
 use DOMElement;
+use PKP\author\contributorRole\ContributorType;
 
 trait AuthorParser
 {
@@ -65,6 +66,7 @@ trait AuthorParser
         }
 
         $author = Repo::author()->newDataObject();
+        $author->setData('contributorType', ContributorType::PERSON->getName());
         $author->setData('givenName', $firstName, $this->getLocale());
         if ($lastName) {
             $author->setData('familyName', $lastName, $this->getLocale());
