@@ -20,6 +20,7 @@ use DOMElement;
 use DOMNode;
 use Exception;
 use PKP\author\contributorRole\ContributorRole;
+use PKP\author\contributorRole\ContributorType;
 
 trait AuthorParser
 {
@@ -94,18 +95,28 @@ trait AuthorParser
         $lastName = $this->selectText('surname', $node);
         $prefix = $this->selectText('prefix', $node);
         $suffix = $this->selectText('suffix', $node);
-        $collab = '';
+        $organizationName = '';
         foreach ($this->select('collab/text()', $authorNode) as $textNode) {
-            $collab .= $textNode->nodeValue;
+            $organizationName .= $textNode->nodeValue;
         }
+        $organizationName = trim($organizationName) ?: null;
+
         if ($lastName && !$firstName) {
             $firstName = $lastName;
             $lastName = '';
-        } elseif (!$lastName && !$firstName) {
-            $firstName = $collab ?: $this->getConfiguration()->getContext()->getName($this->getLocale());
+            $organizationName = null;
+        } elseif ($lastName || $firstName) {
+            $organizationName = null;
+        } elseif ($organizationName) {
+            $firstName = null;
+            $lastName = null;
+        } else {
+            $firstName = $this->getConfiguration()->getContext()->getName($this->getLocale());
         }
-        $firstName = ($prefix ? "{$prefix} " : '') . $firstName;
-        $lastName = $lastName . ($suffix ? " {$suffix}" : '');
+        if (!$organizationName) {
+            $firstName = ($prefix ? "{$prefix} " : '') . $firstName;
+            $lastName = $lastName . ($suffix ? " {$suffix}" : '');
+        }
         $email = $this->selectText('email', $authorNode);
         $orcid = $this->selectText(".//uri[@content-type='orcid']", $authorNode);
         $affiliations = [];
@@ -171,9 +182,15 @@ trait AuthorParser
         $email = $email ?: $databaseEmail ?: $this->getConfiguration()->getEmail();
 
         $author = Repo::author()->newDataObject();
-        $author->setData('givenName', $firstName, $this->getLocale());
-        if ($lastName) {
-            $author->setData('familyName', $lastName, $this->getLocale());
+        if ($organizationName) {
+            $author->setData('contributorType', ContributorType::ORGANIZATION->getName());
+            $author->setData('organizationName', $organizationName, $this->getLocale());
+        } else {
+            $author->setData('contributorType', ContributorType::PERSON->getName());
+            $author->setData('givenName', $firstName, $this->getLocale());
+            if ($lastName) {
+                $author->setData('familyName', $lastName, $this->getLocale());
+            }
         }
 
         if ($orcid) {
