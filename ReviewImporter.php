@@ -30,6 +30,7 @@ use PKP\stageAssignment\StageAssignment;
 use PKP\submission\reviewAssignment\ReviewAssignment;
 use PKP\submission\reviewer\recommendation\ReviewerRecommendation;
 use PKP\submission\reviewRound\authorResponse\AuthorResponse;
+use PKP\submission\reviewer\suggestion\ReviewerSuggestion;
 use PKP\submission\reviewRound\ReviewRound;
 use PKP\submission\reviewRound\ReviewRoundDAO;
 use PKP\submission\SubmissionComment;
@@ -719,5 +720,68 @@ class ReviewImporter
         ]);
 
         Repo::decision()->add($decisionObj);
+    }
+
+    /**
+     * Import author-suggested reviewers from ORE into the submission.
+     */
+    public function importReviewerSuggestions(Submission $submission, int $articleId): void
+    {
+        if (!$articleId) {
+            return;
+        }
+
+        $suggestions = $this->connection->table('f1000r_referee_suggestion_draft')
+            ->where('article_id', $articleId)
+            ->orderBy('created_date')
+            ->orderBy('id')
+            ->get();
+
+        $seenEmails = [];
+        foreach ($suggestions as $suggestion) {
+            $email = trim((string) ($suggestion->email ?? ''));
+            $emailKey = mb_strtolower($email);
+            if ($emailKey === '' || isset($seenEmails[$emailKey])) {
+                continue;
+            }
+            $seenEmails[$emailKey] = true;
+
+            $givenName = trim((string) ($suggestion->first_name ?? ''));
+            $familyName = trim((string) ($suggestion->last_name ?? ''));
+            if ($givenName === '') {
+                $givenName = trim((string) ($suggestion->nick_name ?? ''));
+            }
+            if ($givenName === '' && $familyName !== '') {
+                $givenName = $familyName;
+                $familyName = '';
+            }
+            if ($givenName === '') {
+                continue;
+            }
+
+            $affiliation = implode(', ', array_filter([
+                trim((string) ($suggestion->department ?? '')),
+                trim((string) ($suggestion->institution_name ?: $suggestion->suggested_institution)),
+                trim((string) ($suggestion->place ?? '')),
+                trim((string) ($suggestion->state ?? '')),
+                trim((string) ($suggestion->zip_code ?? '')),
+            ], fn ($part) => $part !== ''));
+
+            $reasonParts = array_filter([
+                trim((string) ($suggestion->referee_type ?? '')),
+                ($url = trim((string) ($suggestion->source_article_url ?? ''))) !== '' ? $url : null,
+            ]);
+
+            ReviewerSuggestion::create([
+                'submissionId' => $submission->getId(),
+                'email' => $email,
+                'givenName' => [$this->locale => $givenName],
+                'familyName' => [$this->locale => $familyName],
+                'affiliation' => [$this->locale => $affiliation],
+                'suggestionReason' => [$this->locale => $reasonParts ? implode(' — ', $reasonParts) : 'Suggested reviewer'],
+                'createdAt' => $suggestion->created_date,
+                'updatedAt' => $suggestion->updated_date ?? $suggestion->created_date,
+            ]);
+        }
     }
 }

@@ -200,6 +200,12 @@ class ArticleEntry
             error_log("Article ID not found to setup the final submission status\n");
             return;
         }
+
+        (new ReviewImporter($configuration, $oreConnection, 1))->importReviewerSuggestions(
+            Repo::submission()->get($parser->getSubmission()->getId()),
+            $articleId
+        );
+
         $latestVersion = $oreConnection
             ->table('f1000r_version as v')
             ->where('v.id', fn ($query) => $query->selectRaw('MAX(id)')->from('f1000r_version')->where('article_id', $articleId))
