@@ -184,12 +184,12 @@ class ReviewImporter
             ORDER BY v.id, rr.position, r.id
         ", [$articleId, $this->versionNumber]);
 
+        // Ensure stage assignments for author, editor (and reviewer via ReviewAssignment) in external review
+        $this->assignStageAssignments($submission, $articleId);
+
         if (empty($reviews)) {
             return;
         }
-
-        // Ensure stage assignments for author, editor (and reviewer via ReviewAssignment) in external review
-        $this->assignStageAssignments($submission, $articleId);
 
         // Group reviews by version_number (which determines the review round)
         $reviewsByVersionNumber = [];
