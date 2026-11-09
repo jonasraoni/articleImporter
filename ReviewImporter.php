@@ -784,6 +784,7 @@ class ReviewImporter
             ]);
 
             ReviewerSuggestion::create([
+                'suggestingUserId' => $this->configuration->getUser()->getId(),
                 'submissionId' => $submission->getId(),
                 'email' => $email,
                 'givenName' => [$this->locale => $givenName],
