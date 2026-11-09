@@ -742,10 +742,39 @@ class ReviewImporter
             return;
         }
 
-        $suggestions = $this->connection->table('f1000r_referee_suggestion_draft')
-            ->where('article_id', $articleId)
-            ->orderBy('created_date')
-            ->orderBy('id')
+        // Referees suggested for the article, excluding author-approved ones and co-referees
+        $suggestions = $this->connection->table('f1000r_article_referee as aref1')
+            ->join('f1000r_referee as ref', 'ref.id', '=', 'aref1.referee_id')
+            ->leftJoin('usr as u', 'u.usr_id', '=', 'ref.user_id')
+            ->leftJoin('f1000r_affiliation as aff', 'aff.id', '=', 'ref.affiliation_id')
+            ->leftJoin('bible_institution as inst', 'inst.id', '=', 'aff.institution_id')
+            ->where('aref1.article_id', $articleId)
+            ->where('aref1.article_referee_status', '!=', 'AUTHOR_APPROVED')
+            ->whereRaw("COALESCE(u.usr_email, ref.email) <> ''")
+            ->whereExists(function (Builder $query) {
+                $query->selectRaw('1')
+                    ->from('f1000r_referee_report as refrep')
+                    ->rightJoin('f1000r_article_referee as aref', 'refrep.article_referee_id', '=', 'aref.id')
+                    ->whereColumn('aref.id', 'aref1.id')
+                    ->where(function (Builder $query) {
+                        $query->whereNull('refrep.is_coreferee')
+                            ->orWhere('refrep.is_coreferee', false);
+                    });
+            })
+            ->orderBy('aref1.created')
+            ->orderBy('aref1.id')
+            ->select([
+                'ref.first_name',
+                'ref.last_name',
+                'ref.nick_name',
+                'aff.department',
+                'inst.displayname as institution_name',
+                'aref1.notes',
+                'aref1.article_referee_source',
+                'aref1.created',
+                'aref1.article_referee_status_updated',
+            ])
+            ->selectRaw('COALESCE(u.usr_email, ref.email) AS email')
             ->get();
 
         $seenEmails = [];
@@ -772,16 +801,12 @@ class ReviewImporter
 
             $affiliation = implode(', ', array_filter([
                 trim((string) ($suggestion->department ?? '')),
-                trim((string) ($suggestion->institution_name ?: $suggestion->suggested_institution)),
-                trim((string) ($suggestion->place ?? '')),
-                trim((string) ($suggestion->state ?? '')),
-                trim((string) ($suggestion->zip_code ?? '')),
+                trim((string) ($suggestion->institution_name ?? '')),
             ], fn ($part) => $part !== ''));
 
-            $reasonParts = array_filter([
-                trim((string) ($suggestion->referee_type ?? '')),
-                ($url = trim((string) ($suggestion->source_article_url ?? ''))) !== '' ? $url : null,
-            ]);
+            $reason = trim((string) ($suggestion->notes ?? ''))
+                ?: $this->humanizeRefereeSource((string) ($suggestion->article_referee_source ?? ''))
+                ?: 'Suggested reviewer';
 
             ReviewerSuggestion::create([
                 'suggestingUserId' => $this->configuration->getUser()->getId(),
@@ -790,10 +815,22 @@ class ReviewImporter
                 'givenName' => [$this->locale => $givenName],
                 'familyName' => [$this->locale => $familyName],
                 'affiliation' => [$this->locale => $affiliation],
-                'suggestionReason' => [$this->locale => $reasonParts ? implode(' — ', $reasonParts) : 'Suggested reviewer'],
-                'createdAt' => $suggestion->created_date,
-                'updatedAt' => $suggestion->updated_date ?? $suggestion->created_date,
+                'suggestionReason' => [$this->locale => $reason],
+                'createdAt' => $suggestion->created,
+                'updatedAt' => $suggestion->article_referee_status_updated ?? $suggestion->created,
             ]);
         }
+    }
+
+    /**
+     * Turn SUGGEST_BY_AUTHOR into "Suggested by author".
+     */
+    private function humanizeRefereeSource(string $source): string
+    {
+        $source = trim($source);
+        if (str_starts_with($source, 'SUGGEST_BY_')) {
+            return 'Suggested by ' . strtolower(str_replace('_', ' ', substr($source, strlen('SUGGEST_BY_'))));
+        }
+        return $source;
     }
 }
