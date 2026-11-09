@@ -95,6 +95,17 @@ class ReviewImporter
             ->pluck('email')
             ->all();
 
+        // Submitters across every version of the article
+        $submitterEmails = $this->connection->table('f1000r_version as v')
+            ->join('f1000r_submitter as s', 's.id', '=', 'v.submitter_id')
+            ->leftJoin('usr as u', 'u.usr_id', '=', 's.user_id')
+            ->where('v.article_id', $articleId)
+            ->selectRaw('DISTINCT COALESCE(u.usr_email, s.email) AS email')
+            ->pluck('email')
+            ->all();
+
+        $databaseEmails = array_values(array_filter(array_merge($submitterEmails, $databaseEmails)));
+
         $hasAuthorAssignment = false;
         foreach ($databaseEmails as $email) {
             $user = Repo::user()->getByEmail($email, true);
