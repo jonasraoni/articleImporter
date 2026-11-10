@@ -126,7 +126,8 @@ class ArticleEntry
      */
     public function process(Configuration $configuration): void
     {
-        $oreConnection = ArticleImporterPlugin::getOreConnection();
+        $f1000 = ArticleImporterPlugin::isF1000IntegrationEnabled();
+        $oreConnection = $f1000 ? ArticleImporterPlugin::getOreConnection() : null;
         $latestDecisionByReferee = [];
         $versionMajor = 0;
         $previouslyPassedReview = false;
@@ -135,69 +136,79 @@ class ArticleEntry
         foreach ($this->getVersions() as $version) {
             $parser = $version->process($configuration);
             $publication = $parser->getPublication();
-            $doi = $parser->getPublicIds()['doi'] ?? '';
-            $doi = explode('.', $doi);
-            $version = (int) array_pop($doi);
-            $articleId = (int) array_pop($doi);
-            $reports = $oreConnection
-                ->table('f1000r_report as r')
-                ->join('f1000r_version as v', 'r.version_id', '=', 'v.id')
-                ->join('f1000r_referee_report as rr', function ($join) {
-                    $join->on('rr.report_id', '=', 'r.id')
-                        ->where('rr.is_coreferee', false);
-                })
-                ->where('v.article_id', $articleId)
-                ->where('v.version_number', $version)
-                ->where('v.status', 'PUBLISHED')
-                ->where('r.status', 'PUBLISHED')
-                ->select('r.decision', 'rr.referee_id')
-                ->get();
+            if ($f1000) {
+                $doi = $parser->getPublicIds()['doi'] ?? '';
+                $doi = explode('.', $doi);
+                $version = (int) array_pop($doi);
+                $articleId = (int) array_pop($doi);
+                $reports = $oreConnection
+                    ->table('f1000r_report as r')
+                    ->join('f1000r_version as v', 'r.version_id', '=', 'v.id')
+                    ->join('f1000r_referee_report as rr', function ($join) {
+                        $join->on('rr.report_id', '=', 'r.id')
+                            ->where('rr.is_coreferee', false);
+                    })
+                    ->where('v.article_id', $articleId)
+                    ->where('v.version_number', $version)
+                    ->where('v.status', 'PUBLISHED')
+                    ->where('r.status', 'PUBLISHED')
+                    ->select('r.decision', 'rr.referee_id')
+                    ->get();
 
-            foreach ($reports as $report) {
-                $latestDecisionByReferee[(int) $report->referee_id] = $report->decision;
+                foreach ($reports as $report) {
+                    $latestDecisionByReferee[(int) $report->referee_id] = $report->decision;
+                }
+
+                $approvals = 0;
+                $approvalsWithReservations = 0;
+                foreach ($latestDecisionByReferee as $decision) {
+                    match ($decision) {
+                        'APPROVED' => $approvals++,
+                        'APPROVED_WITH_RESERVATIONS' => $approvalsWithReservations++,
+                        default => null
+                    };
+                }
+                $passedReview = $approvals >= 2 || ($approvals >= 1 && $approvalsWithReservations >= 2);
+                ++$versionMajor;
+                if ($passedReview && !$previouslyPassedReview) {
+                    $previouslyPassedReview = true;
+                    $versionMajor = 1;
+                }
+
+                $summaryOfChanges = $oreConnection
+                    ->table('f1000r_version as v')
+                    ->where('v.article_id', $articleId)
+                    ->where('v.version_number', $version)
+                    ->where('v.status', 'PUBLISHED')
+                    ->value('v.update_text');
+
+                if ($summaryOfChanges) {
+                    $publication->setData('summaryOfChanges', $summaryOfChanges, 'en');
+                }
+
+                $publication->setVersion(new PublicationVersionInfo($passedReview ? VersionStage::VERSION_OF_RECORD : VersionStage::PUBLISHED_MANUSCRIPT_UNDER_REVIEW, $versionMajor, 0));
+                // Publishes the article
+                if ($publication->getData('datePublished')) {
+                    Repo::publication()->publish($publication);
+                }
+
+                $reviewImporter = new ReviewImporter($configuration, $oreConnection, $version);
+                $reviewImporter->createReviewsForVersions(Repo::submission()->get($parser->getSubmission()->getId()), $parser);
             }
-
-            $approvals = 0;
-            $approvalsWithReservations = 0;
-            foreach ($latestDecisionByReferee as $decision) {
-                match ($decision) {
-                    'APPROVED' => $approvals++,
-                    'APPROVED_WITH_RESERVATIONS' => $approvalsWithReservations++,
-                    default => null
-                };
-            }
-            $passedReview = $approvals >= 2 || ($approvals >= 1 && $approvalsWithReservations >= 2);
-            ++$versionMajor;
-            if ($passedReview && !$previouslyPassedReview) {
-                $previouslyPassedReview = true;
-                $versionMajor = 1;
-            }
-
-            $summaryOfChanges = $oreConnection
-                ->table('f1000r_version as v')
-                ->where('v.article_id', $articleId)
-                ->where('v.version_number', $version)
-                ->where('v.status', 'PUBLISHED')
-                ->value('v.update_text');
-
-            if ($summaryOfChanges) {
-                $publication->setData('summaryOfChanges', $summaryOfChanges, 'en');
-            }
-
-            $publication->setVersion(new PublicationVersionInfo($passedReview ? VersionStage::VERSION_OF_RECORD : VersionStage::PUBLISHED_MANUSCRIPT_UNDER_REVIEW, $versionMajor, 0));
-            // Publishes the article
-            if ($publication->getData('datePublished')) {
-                Repo::publication()->publish($publication);
-            }
-
-            $reviewImporter = new ReviewImporter($configuration, $oreConnection, $version);
-            $reviewImporter->createReviewsForVersions(Repo::submission()->get($parser->getSubmission()->getId()), $parser);
 
             $processed = true;
         }
 
-        if (!$articleId) {
+        if ($f1000 && !$articleId) {
             error_log("Article ID not found to setup the final submission status\n");
+            return;
+        }
+
+        if (!$processed) {
+            throw new ArticleSkippedException('No versions were processed');
+        }
+
+        if (!$f1000) {
             return;
         }
 
@@ -218,10 +229,6 @@ class ArticleEntry
             DB::update("UPDATE submissions SET stage_id = 3, status = 1 WHERE submission_id = {$parser->getSubmission()->getId()}");
         } else {
             DB::update("UPDATE submissions SET stage_id = 5, status = 1 WHERE submission_id = {$parser->getSubmission()->getId()}");
-        }
-
-        if (!$processed) {
-            throw new ArticleSkippedException('No versions were processed');
         }
     }
 }

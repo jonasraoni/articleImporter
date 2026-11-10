@@ -31,6 +31,13 @@ use Throwable;
 class ArticleImporterPlugin extends ImportExportPlugin
 {
     private static $oreConnection;
+    private static bool $f1000IntegrationEnabled = true;
+
+    public static function isF1000IntegrationEnabled(): bool
+    {
+        return static::$f1000IntegrationEnabled;
+    }
+
     public static function getOreConnection(): \Illuminate\Database\Connection
     {
         if (static::$oreConnection) {
@@ -81,6 +88,7 @@ class ArticleImporterPlugin extends ImportExportPlugin
         $hasNumber = !in_array('--no-number', $args);
         $preloadHtml = in_array('--preload-html', $args);
         $createIssues = !in_array('--no-issue', $args);
+        static::$f1000IntegrationEnabled = !in_array('--disable-f1000-integration', $args);
 
         $this->resetAutoIncrements();
 
@@ -166,9 +174,11 @@ class ArticleImporterPlugin extends ImportExportPlugin
                 $this->resequenceIssues($configuration);
             }
 
-            if ($imported) {
+            if ($imported && static::$f1000IntegrationEnabled) {
                 $this->_writeLine('Processing Orcids');
                 $this->processOrcids();
+            }
+            if ($imported) {
                 DB::update("UPDATE user_user_groups SET date_start = NULL");
             }
 

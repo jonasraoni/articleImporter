@@ -45,16 +45,19 @@ trait AuthorParser
         $doi = explode('.', $doi);
         $version = (int) array_pop($doi);
         $articleId = (int) array_pop($doi);
-        $connection = ArticleImporterPlugin::getOreConnection();
-        $databaseEmails = $connection->table('f1000r_author', 'a')
-            ->leftJoin('f1000r_author_version as av', 'a.id', '=', 'av.author_id')
-            ->leftJoin('f1000r_version as v', 'av.version_id', '=', 'v.id')
-            ->where('v.article_id', $articleId)
-            ->where('v.version_number', $version)
-            ->where('v.status', 'PUBLISHED')
-            ->orderBy('av.author_position')
-            ->pluck('a.email')
-            ->all();
+        $databaseEmails = [];
+        if ($articleId && $version && ArticleImporterPlugin::isF1000IntegrationEnabled()) {
+            $connection = ArticleImporterPlugin::getOreConnection();
+            $databaseEmails = $connection->table('f1000r_author', 'a')
+                ->leftJoin('f1000r_author_version as av', 'a.id', '=', 'av.author_id')
+                ->leftJoin('f1000r_version as v', 'av.version_id', '=', 'v.id')
+                ->where('v.article_id', $articleId)
+                ->where('v.version_number', $version)
+                ->where('v.status', 'PUBLISHED')
+                ->orderBy('av.author_position')
+                ->pluck('a.email')
+                ->all();
+        }
 
         $firstCorrespYesAuthor = $firstCorrespNotNoAuthor = null;
         $authors = [];

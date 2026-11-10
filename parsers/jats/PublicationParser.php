@@ -232,6 +232,9 @@ trait PublicationParser
      */
     private function _processUserComments(Publication $publication): void
     {
+        if (!ArticleImporterPlugin::isF1000IntegrationEnabled()) {
+            return;
+        }
         $doi = $this->getPublicIds()['doi'] ?? '';
         $doi = explode('.', $doi);
         $version = (int) array_pop($doi);
@@ -329,6 +332,9 @@ trait PublicationParser
     {
         $htmlPath = str_replace('.xml', '.html', $this->getArticleVersion()->getMetadataFile());
         if (!file_exists($htmlPath)) {
+            if (!ArticleImporterPlugin::isF1000IntegrationEnabled()) {
+                return;
+            }
             $doi = $this->getPublicIds()['doi'] ?? null;
             $doi = explode('.', $doi);
             $version = (int) array_pop($doi);
@@ -343,12 +349,8 @@ trait PublicationParser
             $response = json_decode($client->request('GET', $url)->getBody(), true);
             $response = $response[0] ?? null;
             $htmlUrl = $response['htmlUrl'] ?? null;
-            if ($htmlUrl) {
-                echo "{$htmlUrl}\n  out={$htmlPath}\n";
-                return;
-            }
 
-            /*if ($htmlUrl) {
+            if ($htmlUrl) {
                 $response = $client->request('GET', $htmlUrl);
                 $html = "<html>
     <head>
@@ -361,7 +363,7 @@ trait PublicationParser
 </html>";
 
                 file_put_contents($htmlPath, $html);
-            }*/
+            }
         }
 
         $localFiles = array_map('basename', glob(dirname($htmlPath) . '/*') ?: []);
