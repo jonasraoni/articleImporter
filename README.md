@@ -63,7 +63,16 @@ If the JATS file has no DOI, every file in the version folder (images, documents
 
 You may drop the flag `--disable-f1000-integration` if you have access to the F1000 Postgres database. The importer then also loads reviews, reviewer suggestions, comments, author emails, ORCID tokens, and the article status from that database.
 
-The integration is based on the article ID which is taken from the DOI (for example, in 10.12688/openreseurope.**13015**.1,the article ID is the bolded part). Therefore, if the article doesn't have a DOI the integration won't be able to match data from F1000.
+The integration is based on the article ID and the version number. They are taken from the DOI when present (for example, in 10.12688/openreseurope.**13015**.**1**, the bolded parts are the article ID and the version).
+
+If the article doesn't have a DOI (for example, it is not published yet), the article folder name is used as the article ID and the version folder name as the version. The folder names must therefore match the IDs in F1000. For article ID 12345, version 1:
+
+```text
+import/
+  12345/
+    1/
+      article.xml
+```
 
 Set the needed environment variables before the command. Each one has a default if omitted:
 

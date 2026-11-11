@@ -87,8 +87,7 @@ class ReviewImporter
             ->whereIn('av.version_id', function (Builder $query) use ($articleId) {
                 $query->selectRaw('MAX(v.id)')
                     ->from('f1000r_version as v')
-                    ->where('v.article_id', $articleId)
-                    ->where('v.status', 'PUBLISHED');
+                    ->where('v.article_id', $articleId);
             })
             ->orderBy('av.author_position')
             ->selectRaw('COALESCE(u.usr_email, a.email) AS email')
@@ -133,24 +132,11 @@ class ReviewImporter
     /**
      * Creates OJS reviews for each version based on the database query
      */
-    public function createReviewsForVersions(Submission $submission, BaseParser $parser): void
+    public function createReviewsForVersions(Submission $submission, BaseParser $parser, int $articleId): void
     {
-        $publications = $submission->getPublishedPublications();
-        $bestDoi = null;
-        foreach ($publications as $publication) {
-            $bestDoi = $publication->getDoi();
-            // Attempt to look for a DOI created by ORE
-            if (mb_stripos($bestDoi, 'europe') !== false) {
-                break;
-            }
-        }
-
-        if (!$bestDoi) {
+        if (!$articleId) {
             return;
         }
-
-        $doiParts = explode('.', $bestDoi);
-        $articleId = (int) array_slice($doiParts, -2, 1)[0];
 
         // Execute the query to get all reviews
         $reviews = $this->connection->select(
