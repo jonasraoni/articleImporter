@@ -138,6 +138,8 @@ class ReviewImporter
             return;
         }
 
+        $publications = $submission->getPublishedPublications();
+
         // Execute the query to get all reviews
         $reviews = $this->connection->select(
             "SELECT
