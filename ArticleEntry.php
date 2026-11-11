@@ -137,10 +137,7 @@ class ArticleEntry
             $parser = $version->process($configuration);
             $publication = $parser->getPublication();
             if ($f1000) {
-                $doi = $parser->getPublicIds()['doi'] ?? '';
-                $doi = explode('.', $doi);
-                $version = (int) array_pop($doi);
-                $articleId = (int) array_pop($doi);
+                [$articleId, $versionNumber] = $parser->getF1000Ids();
                 $reports = $oreConnection
                     ->table('f1000r_report as r')
                     ->join('f1000r_version as v', 'r.version_id', '=', 'v.id')
@@ -149,8 +146,7 @@ class ArticleEntry
                             ->where('rr.is_coreferee', false);
                     })
                     ->where('v.article_id', $articleId)
-                    ->where('v.version_number', $version)
-                    ->where('v.status', 'PUBLISHED')
+                    ->where('v.version_number', $versionNumber)
                     ->where('r.status', 'PUBLISHED')
                     ->select('r.decision', 'rr.referee_id')
                     ->get();
@@ -178,8 +174,7 @@ class ArticleEntry
                 $summaryOfChanges = $oreConnection
                     ->table('f1000r_version as v')
                     ->where('v.article_id', $articleId)
-                    ->where('v.version_number', $version)
-                    ->where('v.status', 'PUBLISHED')
+                    ->where('v.version_number', $versionNumber)
                     ->value('v.update_text');
 
                 if ($summaryOfChanges) {
@@ -192,8 +187,8 @@ class ArticleEntry
                     Repo::publication()->publish($publication);
                 }
 
-                $reviewImporter = new ReviewImporter($configuration, $oreConnection, $version);
-                $reviewImporter->createReviewsForVersions(Repo::submission()->get($parser->getSubmission()->getId()), $parser);
+                $reviewImporter = new ReviewImporter($configuration, $oreConnection, $versionNumber);
+                $reviewImporter->createReviewsForVersions(Repo::submission()->get($parser->getSubmission()->getId()), $parser, $articleId);
             }
 
             $processed = true;

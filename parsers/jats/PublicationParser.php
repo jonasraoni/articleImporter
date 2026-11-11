@@ -235,10 +235,7 @@ trait PublicationParser
         if (!ArticleImporterPlugin::isF1000IntegrationEnabled()) {
             return;
         }
-        $doi = $this->getPublicIds()['doi'] ?? '';
-        $doi = explode('.', $doi);
-        $version = (int) array_pop($doi);
-        $articleId = (int) array_pop($doi);
+        [$articleId, $version] = $this->getF1000Ids();
         if (!$articleId || !$version) {
             return;
         }
@@ -335,10 +332,7 @@ trait PublicationParser
             if (!ArticleImporterPlugin::isF1000IntegrationEnabled()) {
                 return;
             }
-            $doi = $this->getPublicIds()['doi'] ?? null;
-            $doi = explode('.', $doi);
-            $version = (int) array_pop($doi);
-            $articleId = (int) array_pop($doi);
+            [$articleId, $version] = $this->getF1000Ids();
             $connection = ArticleImporterPlugin::getOreConnection();
             $versionId = $connection->table('f1000r_version as v')
                 ->where('v.article_id', $articleId)

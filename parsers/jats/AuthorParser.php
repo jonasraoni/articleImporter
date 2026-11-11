@@ -41,10 +41,7 @@ trait AuthorParser
             ->withContextId($this->getContextId())
             ->where('name', 'Co-Author')
             ->first() ?? throw new Exception('Co-Author contributor role not found');
-        $doi = $this->getPublicIds()['doi'] ?? '';
-        $doi = explode('.', $doi);
-        $version = (int) array_pop($doi);
-        $articleId = (int) array_pop($doi);
+        [$articleId, $version] = $this->getF1000Ids();
         $databaseEmails = [];
         if ($articleId && $version && ArticleImporterPlugin::isF1000IntegrationEnabled()) {
             $connection = ArticleImporterPlugin::getOreConnection();
@@ -53,7 +50,6 @@ trait AuthorParser
                 ->leftJoin('f1000r_version as v', 'av.version_id', '=', 'v.id')
                 ->where('v.article_id', $articleId)
                 ->where('v.version_number', $version)
-                ->where('v.status', 'PUBLISHED')
                 ->orderBy('av.author_position')
                 ->pluck('a.email')
                 ->all();

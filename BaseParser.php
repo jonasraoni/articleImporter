@@ -290,6 +290,27 @@ abstract class BaseParser
     }
 
     /**
+     * Resolves the F1000 article ID and version number.
+     * Taken from the DOI (e.g. 10.12688/openreseurope.13015.1) when present,
+     * otherwise from the article folder name and the version folder.
+     *
+     * @return array{0: int, 1: int} [articleId, version], zeros when not resolvable
+     */
+    public function getF1000Ids(): array
+    {
+        $doi = $this->getPublicIds()['doi'] ?? '';
+        if ($doi) {
+            $parts = explode('.', $doi);
+            $version = (int) array_pop($parts);
+            $articleId = (int) array_pop($parts);
+            if ($articleId && $version) {
+                return [$articleId, $version];
+            }
+        }
+        return [(int) $this->getArticleEntry()->getArticle(), $this->getArticleVersion()->getVersion()];
+    }
+
+    /**
      * Manually evaluates the textContent of the node with the help of a transformation callback
      *
      * @param callable $callback The callback will receive two arguments, the current node being parsed and the already transformed textContent of it
