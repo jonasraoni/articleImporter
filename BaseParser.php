@@ -299,15 +299,24 @@ abstract class BaseParser
     public function getF1000Ids(): array
     {
         $doi = $this->getPublicIds()['doi'] ?? '';
-        if ($doi) {
+        // Only DOIs created by ORE encode the F1000 IDs
+        if ($doi && mb_stripos($doi, 'europe') !== false) {
             $parts = explode('.', $doi);
-            $version = (int) array_pop($parts);
-            $articleId = (int) array_pop($parts);
-            if ($articleId && $version) {
-                return [$articleId, $version];
+            $version = (string) array_pop($parts);
+            $articleId = (string) array_pop($parts);
+            if (ctype_digit($articleId) && ctype_digit($version) && (int) $articleId && (int) $version) {
+                return [(int) $articleId, (int) $version];
             }
         }
-        return [(int) $this->getArticleEntry()->getArticle(), $this->getArticleVersion()->getVersion()];
+
+        // Folder names must be purely numeric, otherwise e.g. "12345_old" would match article 12345
+        $article = $this->getArticleEntry()->getArticle();
+        $versionFolder = $this->getArticleVersion()->getPath()->getFilename();
+        if (!ctype_digit($article) || !ctype_digit($versionFolder)) {
+            error_log("Cannot resolve F1000 IDs: non-numeric folder name (article \"{$article}\", version \"{$versionFolder}\")");
+            return [0, 0];
+        }
+        return [(int) $article, $this->getArticleVersion()->getVersion()];
     }
 
     /**
